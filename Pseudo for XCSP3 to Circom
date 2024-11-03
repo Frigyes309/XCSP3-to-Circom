@@ -1,0 +1,87 @@
+// Main parsing loop
+while !EOF do
+    if <constraint> tag found then
+        read constraint type
+        if type is "intension" then
+            parse_intension_constraint()
+        else if type is "extension" then
+            parse_extension_constraint()
+    else if <variables> tag found then
+        parse_variables()
+end while
+
+procedure parse_intension_constraint()
+    // Get operator from first token
+    op = read_next_token()
+    
+    case op of
+        "eq": 
+            // Rating equality constraint
+            // eq(Rating,N) iff (conditions)
+            left = read_until_comma()
+            right = read_until_closing_paren()
+            emit_circom("signal intermediate_{counter} = IsEqual({left}, {right});")
+            
+        "and":
+            // Multiple conditions that must all be true
+            conditions = []
+            while next_token != closing_paren do
+                conditions.append(parse_condition())
+            emit_circom(join_conditions_with_multiply(conditions))
+            
+        "iff":
+            // Rating condition equivalence
+            rating_cond = parse_condition()
+            other_conds = parse_condition()
+            emit_circom("signal equiv_{counter} = IsEqual({rating_cond}, {other_conds});")
+            
+        "ge", "le", "gt", "lt":
+            // Numeric comparisons
+            left = read_until_comma()
+            right = read_until_closing_paren()
+            emit_comparison_circuit(op, left, right)
+end procedure
+
+procedure emit_comparison_circuit(op, left, right)
+    case op of
+        "ge": 
+            emit_circom("signal comp_{counter} = GreaterEqualThan()({left}, {right});")
+        "le":
+            emit_circom("signal comp_{counter} = LessEqualThan()({left}, {right});")
+        "gt":
+            emit_circom("signal comp_{counter} = GreaterThan()({left}, {right});")
+        "lt":
+            emit_circom("signal comp_{counter} = LessThan()({left}, {right});")
+end procedure
+
+procedure parse_variables()
+    while next_token is variable declaration do
+        var_name = read_identifier()
+        var_type = read_type()
+        var_range = read_range()
+        
+        if var_name in private_inputs then
+            emit_circom("signal private input {var_name};")
+        else
+            emit_circom("signal input {var_name};")
+            
+        // Add range constraints
+        min, max = parse_range(var_range)
+        emit_circom("signal {var_name}_in_range = InRange()({var_name}, {min}, {max});")
+end procedure
+
+// Example of how a credit rating constraint would be processed:
+/*
+Input XCSP3: 
+<constraint>
+    <intension>(eq(Rating,1) iff (and(ge(ICR,15),le(DE,20),le(OLC,40))))</intension>
+</constraint>
+
+Output Circom:
+signal icr_check = GreaterEqualThan()(ICR, 15);
+signal de_check = LessEqualThan()(DE, 20);
+signal olc_check = LessEqualThan()(OLC, 40);
+signal aaa_condition = icr_check * de_check * olc_check;
+signal rating_1_check = IsEqual(Rating, 1);
+signal rating_1_constraint = IsEqual(rating_1_check, aaa_condition);
+*/
